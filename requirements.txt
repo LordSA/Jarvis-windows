@@ -8,3 +8,6 @@ psutil
 python-dotenv
 keyboard
 pyautogui
+pyaudio
+# If pyaudio installation fails, follow instructions to install Microsoft C++ Build Tools
+# or download a pre-compiled wheel for your specific Python version.
