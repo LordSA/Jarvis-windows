@@ -1,17 +1,18 @@
 import re
+import os
 
 class IntentParser:
     def __init__(self, config_path="config/settings.json"):
-        # We can add more refined logic or load from a config if needed
+        # Offline-only mode enabled
         pass
 
     def parse(self, text):
-        """Parse text to determine intent and entities."""
+        """Parse text to determine intent and entities using local Regex patterns."""
         if not text:
             return None, {}
             
         text = text.lower()
-        
+
         # Opening apps
         match = re.search(r"open\s+(.*)", text)
         if match:
@@ -30,5 +31,9 @@ class IntentParser:
             recipient = match.group(1).strip()
             return "send_mail", {"to": recipient}
             
+        # Add basic greeting intent
+        if any(word in text for word in ["hello", "hi", "hey", "jarvis"]):
+            return "greet", {}
+
         # Default fallback
         return None, {}
