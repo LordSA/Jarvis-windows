@@ -5,6 +5,8 @@
     "voice_id": null,
     "recognition_language": "en-US",
     "energy_threshold": 300,
+    "microphone_index": null,
+    "use_mic": true,
     "apps": {
         "notepad": "notepad.exe",
         "calculator": "calc.exe",

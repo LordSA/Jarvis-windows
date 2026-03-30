@@ -27,6 +27,10 @@ class SpeechManager:
         self.recognizer.operation_timeout = 10
         self.mic_index = self.config.get('microphone_index', None)
         
+        # Auto-detect Bluetooth Headsets
+        if self.mic_index is None:
+            self.mic_index = self.discover_bluetooth_mic()
+        
         # Check for PyAudio/Microphone availability
         self.has_microphone = True
         try:
@@ -43,6 +47,19 @@ class SpeechManager:
                 return json.load(f)
         except Exception:
             return {}
+
+    def discover_bluetooth_mic(self):
+        """Automatically search for Bluetooth Hands-Free devices."""
+        try:
+            mics = sr.Microphone.list_microphone_names()
+            for i, name in enumerate(mics):
+                # Common patterns for Bluetooth headsets in Windows
+                if any(term in name.lower() for term in ["hands-free", "bluetooth", "headset", "pods", "buds"]):
+                    print(f"Jarvis: Auto-detected Bluetooth Audio Device: {name}")
+                    return i
+        except Exception:
+            pass
+        return None
 
     def speak(self, text):
         """Convert text to speech."""
@@ -61,37 +78,34 @@ class SpeechManager:
 
         try:
             with sr.Microphone(device_index=self.mic_index) as source:
-                print("Listening (Mic) - Please speak clearly...")
-                # Adjust for ambient noise with a longer duration for precision
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                print(f"Listening (Mic: {self.mic_index}) - Speak clearly...")
+                # Bluetooth devices have higher latency, so we wait longer for silence
+                self.recognizer.adjust_for_ambient_noise(source, duration=1.2)
                 
-                # Dynamically set energy threshold based on recent noise levels
-                # But keep a minimum to avoid picking up computer fan noise
-                if self.recognizer.energy_threshold < 100:
-                    self.recognizer.energy_threshold = 100
+                # Bluetooth audio often has brief 'silent' bursts, we increase pause threshold
+                self.recognizer.pause_threshold = 1.0 
                 
-                # Listen with a slightly longer timeout and phrase limit
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=15)
+                # Listen with a generous timeout for Bluetooth connection wakeup
+                audio = self.recognizer.listen(source, timeout=12, phrase_time_limit=15)
                 
                 print("Processing speech...")
-                # Support multiple engines for better reliability
                 try:
-                    # Use Google Speech Recognition which is best for general commands
                     query = self.recognizer.recognize_google(audio, language=self.config.get('recognition_language', 'en-US'))
                 except sr.UnknownValueError:
-                    print("Could not understand audio. Try speaking louder or check your input device.")
                     return None
                 except sr.RequestError:
-                    print("Could not request results from Speech Recognition service (Check Internet).")
+                    print("Speech Service Error. Check Internet.")
                     return None
                 
                 print(f"User: {query}")
                 return query.lower()
         except (sr.WaitTimeoutError, sr.UnknownValueError):
-            print("No speech detected within the timeout period.")
             return None
-        except (sr.RequestError, AttributeError, ImportError, Exception) as e:
-            print(f"Speech error: {e}. Falling back to text input.")
+        except Exception as e:
+            # If Bluetooth device disconnected, retry with default index next time
+            if "device" in str(e).lower():
+                self.mic_index = None 
+            print(f"Speech error: {e}. Falling back to text.")
             return self.listen_text()
 
     def listen_text(self):

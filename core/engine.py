@@ -63,6 +63,14 @@ class JarvisEngine(QThread):
                     self.sys_control.control_media("play_pause")
                     self.speech_manager.speak("Media toggled.")
 
+                elif intent == "media_next":
+                    self.sys_control.control_media("next")
+                    self.speech_manager.speak("Next track.")
+
+                elif intent == "media_prev":
+                    self.sys_control.control_media("prev")
+                    self.speech_manager.speak("Previous track.")
+
                 elif intent == "open_app":
                     app_name = entities.get("app_name")
                     msg = f"Do you want me to launch {app_name}?"

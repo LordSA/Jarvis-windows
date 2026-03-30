@@ -1,5 +1,6 @@
 import sys
 import os
+import ctypes
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
 from PyQt6.QtCore import Qt
 
@@ -8,6 +9,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from ui.overlay import JarvisOverlay
 from core.engine import JarvisEngine
+
+# DPI Awareness fix for Windows 10/11
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 
 class CustomDialog(QDialog):
     """Specific modal dialog triggered on confirmation."""
