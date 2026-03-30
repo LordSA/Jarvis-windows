@@ -30,17 +30,14 @@ class JarvisEngine(QThread):
         self.status_changed.emit("Listening (Hotkey)...")
 
     def get_voice_confirmation(self):
-        """Specifically listen for Yes/No after a prompt."""
+        """Ultra-fast confirmation listening."""
         self.status_changed.emit("Confirm? (Yes/No)")
-        for _ in range(2): # Try twice
-            # Faster timeout for confirmation
-            reply = self.speech_manager.listen(timeout=5, phrase_limit=3)
-            if reply:
-                print(f"Jarvis Debug: Confirmation Reply - {reply}")
-                if any(word in reply for word in ["yes", "yeah", "sure", "do it", "confirm"]):
-                    return True
-                if any(word in reply for word in ["no", "never", "cancel", "stop", "don't"]):
-                    return False
+        # Tighter listening window for confirm
+        reply = self.speech_manager.listen(timeout=3, phrase_limit=2)
+        if reply:
+            print(f"DEBUG: Confirm Reply: {reply}")
+            if any(word in reply for word in ["yes", "yeah", "sure", "ok", "yep"]):
+                return True
         return False
 
     def run(self):

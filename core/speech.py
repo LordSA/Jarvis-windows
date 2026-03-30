@@ -8,7 +8,30 @@ class SpeechManager:
     def __init__(self, config_path="config/settings.json"):
         self.config = self.load_config(config_path)
         
-        # Initialize Text-to-Speech
+        # Initialize Speech Recognition first (Non-blocking)
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = self.config.get('energy_threshold', 300)
+        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.pause_threshold = 0.5
+        self.recognizer.non_speaking_duration = 0.3
+        self.recognizer.operation_timeout = 10
+        self.mic_index = self.config.get('microphone_index', None)
+        
+        # Auto-detect Bluetooth Headsets (Lazy initialize)
+        if self.mic_index is None:
+            self.mic_index = self.discover_bluetooth_mic()
+        
+        # Check for PyAudio/Microphone availability
+        self.has_microphone = True
+        try:
+            # Test if Microphone is available (requires PyAudio)
+            with sr.Microphone(device_index=self.mic_index) as source:
+                pass
+        except (AttributeError, ImportError, Exception):
+            print("Warning: PyAudio not found or Microphone not accessible. Falling back to text input.")
+            self.has_microphone = False
+
+        # Initialize Text-to-Speech last to avoid blocking mic stream
         try:
             self.tts_engine = pyttsx3.init()
             self.tts_engine.setProperty('rate', self.config.get('speech_rate', 150))
@@ -25,29 +48,6 @@ class SpeechManager:
         except Exception as e:
             print(f"Warning: TTS initialization failed ({e}). Using text-only output.")
             self.tts_enabled = False
-        
-        # Initialize Speech Recognition
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = self.config.get('energy_threshold', 300)
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
-        self.recognizer.non_speaking_duration = 0.5
-        self.recognizer.operation_timeout = 10
-        self.mic_index = self.config.get('microphone_index', None)
-        
-        # Auto-detect Bluetooth Headsets
-        if self.mic_index is None:
-            self.mic_index = self.discover_bluetooth_mic()
-        
-        # Check for PyAudio/Microphone availability
-        self.has_microphone = True
-        try:
-            # Test if Microphone is available (requires PyAudio)
-            with sr.Microphone(device_index=self.mic_index) as source:
-                pass
-        except (AttributeError, ImportError, Exception):
-            print("Warning: PyAudio not found or Microphone not accessible. Falling back to text input.")
-            self.has_microphone = False
 
     def load_config(self, path):
         try:
@@ -79,42 +79,46 @@ class SpeechManager:
             except Exception:
                 pass
 
-    def listen(self, timeout=12, phrase_limit=15):
-        """Listen for audio input and return transcribed text. Falls back to keyboard input if no mic."""
+    def listen(self, timeout=5, phrase_limit=8):
+        """Listen for audio input and return transcribed text with low latency."""
         if not self.has_microphone:
             return self.listen_text()
 
         try:
-            with sr.Microphone(device_index=self.mic_index) as source:
-                print(f"Listening (Mic: {self.mic_index}) - Speak clearly...")
-                # Reduce noise adjustment time for confirmation loops
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
+            # Check if mic is busy/not-ready
+            mic = sr.Microphone(device_index=self.mic_index)
+            with mic as source:
+                # 1. Faster noise adjustment (once per session ideally, but 0.3s is fast)
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.2)
                 
-                # Dynamic sensitivity tuning
-                self.recognizer.pause_threshold = 0.8
-                self.recognizer.energy_threshold = 300 
+                # 2. Tighten silence detection to stop listening faster
+                self.recognizer.pause_threshold = 0.5
+                self.recognizer.non_speaking_duration = 0.3
                 
+                print(f"Listening (Mic: {self.mic_index})...")
+                # 3. Listen with tighter timeouts to prevent hanging
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
                 
-                print("Processing speech...")
+                print("Processing...")
                 try:
                     query = self.recognizer.recognize_google(audio, language=self.config.get('recognition_language', 'en-US'))
+                    if query:
+                        print(f"User: {query}")
+                        return query.lower()
                 except sr.UnknownValueError:
                     return None
                 except sr.RequestError:
-                    print("Speech Service Error. Check Internet.")
                     return None
-                
-                print(f"User: {query}")
-                return query.lower()
+                    
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
         except Exception as e:
-            # If Bluetooth device disconnected, retry with default index next time
-            if "device" in str(e).lower():
-                self.mic_index = None 
-            print(f"Speech error: {e}. Falling back to text.")
-            return self.listen_text()
+            msg = str(e).lower()
+            if "device" in msg or "invalid" in msg or "busy" in msg:
+                print(f"Mic Reset Debug: Device {self.mic_index} unavailable. Trying default.")
+                self.mic_index = None # Reset to system default
+            return None
+        return None
 
     def listen_text(self):
         """Fallback method for keyboard input."""
