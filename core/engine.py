@@ -42,21 +42,24 @@ class JarvisEngine(QThread):
 
     def run(self):
         self.status_changed.emit("Listening...")
-        self.speech_manager.speak("Systems fully online.")
+        self.speech_manager.speak("Systems fully online. Ready for your commands.")
         
         while self.is_running:
+            # Let the listening status update before we block
+            self.status_changed.emit("Listening...")
+            time.sleep(0.1) 
             query = self.speech_manager.listen()
             
             if query:
                 self.query_heard.emit(query)
-                print(f"Jarvis Debug: Received query - '{query}'")
                 self.status_changed.emit("Analyzing...")
                 intent, entities = self.intent_parser.parse(query)
+                print(f"Jarvis Debug: Received query - '{query}'")
                 print(f"Jarvis Debug: Parsed Intent - {intent}, Entities - {entities}")
                 
                 # Intent Execution Logic
                 if intent == "greet":
-                    self.speech_manager.speak("How can I help you, sir?")
+                    self.speech_manager.speak("Hello! I'm here and listening.")
                 
                 elif intent == "system_status":
                     status = self.sys_control.get_system_status()
