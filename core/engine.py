@@ -29,6 +29,20 @@ class JarvisEngine(QThread):
     def force_listen(self):
         self.status_changed.emit("Listening (Hotkey)...")
 
+    def get_voice_confirmation(self):
+        """Specifically listen for Yes/No after a prompt."""
+        self.status_changed.emit("Confirm? (Yes/No)")
+        for _ in range(2): # Try twice
+            # Faster timeout for confirmation
+            reply = self.speech_manager.listen(timeout=5, phrase_limit=3)
+            if reply:
+                print(f"Jarvis Debug: Confirmation Reply - {reply}")
+                if any(word in reply for word in ["yes", "yeah", "sure", "do it", "confirm"]):
+                    return True
+                if any(word in reply for word in ["no", "never", "cancel", "stop", "don't"]):
+                    return False
+        return False
+
     def run(self):
         self.status_changed.emit("Listening...")
         self.speech_manager.speak("Systems fully online.")
@@ -38,8 +52,10 @@ class JarvisEngine(QThread):
             
             if query:
                 self.query_heard.emit(query)
+                print(f"Jarvis Debug: Received query - '{query}'")
                 self.status_changed.emit("Analyzing...")
                 intent, entities = self.intent_parser.parse(query)
+                print(f"Jarvis Debug: Parsed Intent - {intent}, Entities - {entities}")
                 
                 # Intent Execution Logic
                 if intent == "greet":
@@ -74,31 +90,37 @@ class JarvisEngine(QThread):
                 elif intent == "open_app":
                     app_name = entities.get("app_name")
                     msg = f"Do you want me to launch {app_name}?"
-                    def action(confirmed, aname=app_name):
-                        if confirmed:
-                            self.app_control.open_app(aname)
-                            self.speech_manager.speak(f"Launching {aname}")
-                        self.status_changed.emit("Listening...")
-                    self.request_confirmation.emit(msg, action)
+                    print(f"Jarvis Debug: Requesting confirmation for app: {app_name}")
+                    
+                    self.speech_manager.speak(msg)
+                    # Use specialized voice confirmation instead of just a popup
+                    confirmed = self.get_voice_confirmation()
+                    
+                    print(f"Jarvis Debug: Voice confirmed {app_name}: {confirmed}")
+                    if confirmed:
+                        self.app_control.open_app(app_name)
+                        self.speech_manager.speak(f"Launching {app_name}")
+                    else:
+                        self.speech_manager.speak("Action cancelled.")
+                        
+                    self.status_changed.emit("Listening...")
 
                 elif intent == "web_search":
                     s_query = entities.get("query")
                     msg = f"Search Google for {s_query}?"
-                    def action(confirmed, sq=s_query):
-                        if confirmed:
-                            self.web_control.search_google(sq)
-                            self.speech_manager.speak(f"Searching for {sq}")
-                        self.status_changed.emit("Listening...")
-                    self.request_confirmation.emit(msg, action)
+                    self.speech_manager.speak(msg)
+                    if self.get_voice_confirmation():
+                        self.web_control.search_google(s_query)
+                        self.speech_manager.speak(f"Searching for {s_query}")
+                    self.status_changed.emit("Listening...")
 
                 elif intent == "system_power":
                     mode = entities.get("mode")
-                    msg = f"Danger: Perform system {mode}?"
-                    def action(confirmed, m=mode):
-                        if confirmed:
-                            self.sys_control.shutdown_system(m)
-                        self.status_changed.emit("Listening...")
-                    self.request_confirmation.emit(msg, action)
+                    msg = f"Perform system {mode}?"
+                    self.speech_manager.speak(msg)
+                    if self.get_voice_confirmation():
+                        self.sys_control.shutdown_system(mode)
+                    self.status_changed.emit("Listening...")
 
                 self.status_changed.emit("Listening...")
             time.sleep(0.1)

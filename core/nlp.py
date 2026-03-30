@@ -35,7 +35,9 @@ class IntentParser:
         # Detect "open [app_name]"
         match = re.search(r"open\s+(.*)", text)
         if match:
-            app_name = match.group(1).strip()
+            app_name = match.group(1).replace("please", "").strip()
+            # Clean up potential speech recognition artifacts
+            app_name = app_name.replace("spotify", "spotify") 
             return "open_app", {"app_name": app_name}
         
         # 3. Web Search

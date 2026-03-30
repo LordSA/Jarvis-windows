@@ -13,6 +13,14 @@ class SpeechManager:
             self.tts_engine = pyttsx3.init()
             self.tts_engine.setProperty('rate', self.config.get('speech_rate', 150))
             self.tts_engine.setProperty('volume', self.config.get('volume', 1.0))
+            
+            # Switch to Female Voice (Zira)
+            voices = self.tts_engine.getProperty('voices')
+            for voice in voices:
+                if "zira" in voice.name.lower() or "female" in voice.name.lower():
+                    self.tts_engine.setProperty('voice', voice.id)
+                    break
+            
             self.tts_enabled = True
         except Exception as e:
             print(f"Warning: TTS initialization failed ({e}). Using text-only output.")
@@ -71,7 +79,7 @@ class SpeechManager:
             except Exception:
                 pass
 
-    def listen(self):
+    def listen(self, timeout=12, phrase_limit=15):
         """Listen for audio input and return transcribed text. Falls back to keyboard input if no mic."""
         if not self.has_microphone:
             return self.listen_text()
@@ -79,14 +87,14 @@ class SpeechManager:
         try:
             with sr.Microphone(device_index=self.mic_index) as source:
                 print(f"Listening (Mic: {self.mic_index}) - Speak clearly...")
-                # Bluetooth devices have higher latency, so we wait longer for silence
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.2)
+                # Reduce noise adjustment time for confirmation loops
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
                 
-                # Bluetooth audio often has brief 'silent' bursts, we increase pause threshold
-                self.recognizer.pause_threshold = 1.0 
+                # Dynamic sensitivity tuning
+                self.recognizer.pause_threshold = 0.8
+                self.recognizer.energy_threshold = 300 
                 
-                # Listen with a generous timeout for Bluetooth connection wakeup
-                audio = self.recognizer.listen(source, timeout=12, phrase_time_limit=15)
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
                 
                 print("Processing speech...")
                 try:
