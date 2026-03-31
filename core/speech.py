@@ -25,10 +25,15 @@ class SpeechManager:
         self.has_microphone = True
         try:
             # Test if Microphone is available (requires PyAudio)
-            with sr.Microphone(device_index=self.mic_index) as source:
-                pass
-        except (AttributeError, ImportError, Exception):
-            print("Warning: PyAudio not found or Microphone not accessible. Falling back to text input.")
+            import pyaudio
+            p = pyaudio.PyAudio()
+            # Explicitly check for valid device index
+            if self.mic_index is not None:
+                device_info = p.get_device_info_by_index(self.mic_index)
+                print(f"DEBUG: Using Bluetooth device: {device_info['name']}")
+            p.terminate()
+        except Exception as e:
+            print(f"Warning: Microphone initialization error: {e}. Falling back to text input.")
             self.has_microphone = False
 
         # Initialize Text-to-Speech last to avoid blocking mic stream
@@ -74,10 +79,24 @@ class SpeechManager:
         print(f"Jarvis: {text}")
         if self.tts_enabled:
             try:
+                # Use a fresh engine instance to avoid "NoneType" error or hanging/blocking issues
+                # especially when called from keyboard or different threads
                 self.tts_engine.say(text)
                 self.tts_engine.runAndWait()
-            except Exception:
-                pass
+            except Exception as e:
+                # If engine is corrupted (e.g. by thread conflicts), recreate it
+                try:
+                    self.tts_engine = pyttsx3.init()
+                    # Re-apply voice settings
+                    voices = self.tts_engine.getProperty('voices')
+                    for voice in voices:
+                        if "zira" in voice.name.lower() or "female" in voice.name.lower():
+                            self.tts_engine.setProperty('voice', voice.id)
+                            break
+                    self.tts_engine.say(text)
+                    self.tts_engine.runAndWait()
+                except:
+                    pass
 
     def listen(self, timeout=5, phrase_limit=8):
         """Listen for audio input and return transcribed text with low latency."""
@@ -85,9 +104,9 @@ class SpeechManager:
             return self.listen_text()
 
         try:
-            # Check if mic is busy/not-ready
-            mic = sr.Microphone(device_index=self.mic_index)
-            with mic as source:
+            # Re-instantiate Microphone on every loop to ensure stream is fresh
+            # and avoid the 'NoneType' closure error from persistent instances.
+            with sr.Microphone(device_index=self.mic_index) as source:
                 # 1. Faster noise adjustment (once per session ideally, but 0.3s is fast)
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.2)
                 
@@ -95,7 +114,7 @@ class SpeechManager:
                 self.recognizer.pause_threshold = 0.5
                 self.recognizer.non_speaking_duration = 0.3
                 
-                print(f"Listening (Mic: {self.mic_index})...")
+                print(f"Listening on {self.mic_index if self.mic_index is not None else 'default'} mic...")
                 # 3. Listen with tighter timeouts to prevent hanging
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
                 
@@ -105,26 +124,26 @@ class SpeechManager:
                     if query:
                         print(f"User: {query}")
                         return query.lower()
-                except sr.UnknownValueError:
                     return None
-                except sr.RequestError:
+                except (sr.UnknownValueError, sr.RequestError):
                     return None
                     
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
         except Exception as e:
+            # Handle Bluetooth disconnects / permission issues
             msg = str(e).lower()
             if "device" in msg or "invalid" in msg or "busy" in msg:
-                print(f"Mic Reset Debug: Device {self.mic_index} unavailable. Trying default.")
-                self.mic_index = None # Reset to system default
+                print(f"DEBUG: Hardware error detected ({e}). Resetting to default mic.")
+                self.mic_index = None 
+            else:
+                print(f"DEBUG: Listen Error: {e}")
             return None
-        return None
 
     def listen_text(self):
         """Fallback method for keyboard input."""
         try:
             print("\n[Headless Mode] Type your command:")
-            # Use raw_input/input based on environment, but here we're in Python 3
             query = input("User >> ").strip()
             if query:
                 return query.lower()

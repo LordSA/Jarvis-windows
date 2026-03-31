@@ -64,7 +64,7 @@ class JarvisEngine(QThread):
                 elif intent == "system_status":
                     status = self.sys_control.get_system_status()
                     self.speech_manager.speak(status)
-
+                
                 elif intent == "vol_up":
                     self.sys_control.control_volume("vUp")
                     self.speech_manager.speak("Increasing volume.")
@@ -98,32 +98,26 @@ class JarvisEngine(QThread):
                     
                     print(f"Jarvis Debug: Voice confirmed {app_name}: {confirmed}")
                     if confirmed:
-                        self.app_control.open_app(app_name)
-                        self.speech_manager.speak(f"Launching {app_name}")
+                        success = self.app_control.launch_app(app_name)
+                        if success:
+                            self.speech_manager.speak(f"Launching {app_name}")
+                        else:
+                            self.speech_manager.speak(f"Sorry, I couldn't find {app_name}")
                     else:
                         self.speech_manager.speak("Action cancelled.")
-                        
-                    self.status_changed.emit("Listening...")
+                
+                elif query and not intent:
+                    # In keyboard mode or voice mode, if no intent, just acknowledge
+                    self.speech_manager.speak(f"I heard you say: {query}")
+            else:
+                # Add a small sleep to prevent CPU spike in listen loops
+                time.sleep(0.1)
 
-                elif intent == "web_search":
-                    s_query = entities.get("query")
-                    msg = f"Search Google for {s_query}?"
-                    self.speech_manager.speak(msg)
-                    if self.get_voice_confirmation():
-                        self.web_control.search_google(s_query)
-                        self.speech_manager.speak(f"Searching for {s_query}")
-                    self.status_changed.emit("Listening...")
+            # Keep looking for keyboard shortcuts
+            if keyboard.is_pressed('ctrl+c'):
+                self.is_running = False
+                break
 
-                elif intent == "system_power":
-                    mode = entities.get("mode")
-                    msg = f"Perform system {mode}?"
-                    self.speech_manager.speak(msg)
-                    if self.get_voice_confirmation():
-                        self.sys_control.shutdown_system(mode)
-                    self.status_changed.emit("Listening...")
-
-                self.status_changed.emit("Listening...")
-            time.sleep(0.1)
 
     def stop(self):
         self.is_running = False
