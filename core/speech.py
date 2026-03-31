@@ -41,7 +41,7 @@ class SpeechManager:
         self.consecutive_timeouts = 0
         self.mic_failure_counts = {}
         self.preferred_phrase_timeout = self.config.get('phrase_time_limit', 10)
-        self.preferred_listen_timeout = self.config.get('listen_timeout', 5)
+        self.preferred_listen_timeout = max(5, self.config.get('listen_timeout', 5))
         
         # Check for PyAudio/Microphone availability
         self.has_microphone = True
@@ -191,7 +191,7 @@ class SpeechManager:
         try:
             with sr.Microphone(device_index=self.mic_index) as source:
                 # Keep calibration short to avoid the appearance of a hang.
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.25)
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 
                 # Set a default timeout if none provided to prevent indefinite hanging
                 listen_timeout = timeout if timeout is not None else self.preferred_listen_timeout
@@ -239,6 +239,14 @@ class SpeechManager:
                     print("Jarvis: Speech heard but not recognized.")
                     return None
                 except sr.UnknownValueError:
+                    # For short utterances like "yes"/"no", offline decode can still succeed.
+                    try:
+                        offline_query = self.recognizer.recognize_sphinx(audio)
+                        if offline_query:
+                            print(f"User (offline): {offline_query}")
+                            return offline_query.lower()
+                    except Exception:
+                        pass
                     return None
                 except sr.RequestError:
                     # Fallback to offline recognizer when network recognition is unavailable.

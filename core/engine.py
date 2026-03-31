@@ -8,6 +8,7 @@ from modules.system_control import SystemControl
 import time
 import keyboard
 import pyautogui
+import re
 
 class JarvisEngine(QThread):
     status_changed = pyqtSignal(str)
@@ -125,18 +126,45 @@ class JarvisEngine(QThread):
                 break
 
     def get_voice_confirmation(self):
-        """Specifically listen for Yes/No after a prompt."""
+        """Get a yes/no confirmation via keyboard or microphone."""
         self.status_changed.emit("Confirm? (Yes/No)")
-        for _ in range(2): # Try twice
-            # Faster timeout for confirmation
-            reply = self.speech_manager.listen(timeout=5, phrase_limit=3)
+        for _ in range(2):
+            if self.keyboard_mode:
+                reply = self.speech_manager.listen_text()
+            else:
+                # Keep at least 5 seconds and allow short/clear confirmations.
+                reply = self.speech_manager.listen(timeout=5, phrase_limit=5)
             if reply:
                 print(f"Jarvis Debug: Confirmation Reply - {reply}")
-                if any(word in reply for word in ["yes", "yeah", "sure", "do it", "confirm"]):
+                if self._is_affirmative(reply):
                     return True
-                if any(word in reply for word in ["no", "never", "cancel", "stop", "don't"]):
+                if self._is_negative(reply):
                     return False
         return False
+
+    def _is_affirmative(self, text):
+        normalized = re.sub(r"[^a-zA-Z\s]", " ", text.lower()).strip()
+        words = set(normalized.split())
+        affirm_words = {
+            "yes", "y", "yeah", "yep", "sure", "ok", "okay", "confirm", "do", "go", "launch"
+        }
+        if words.intersection(affirm_words):
+            return True
+        return any(phrase in normalized for phrase in [
+            "do it", "go ahead", "open it", "launch it", "yes please"
+        ])
+
+    def _is_negative(self, text):
+        normalized = re.sub(r"[^a-zA-Z\s]", " ", text.lower()).strip()
+        words = set(normalized.split())
+        negative_words = {
+            "no", "n", "nope", "cancel", "stop", "dont", "don't", "never"
+        }
+        if words.intersection(negative_words):
+            return True
+        return any(phrase in normalized for phrase in [
+            "not now", "do not", "don t", "no thanks"
+        ])
 
     def stop(self):
         self.is_running = False
