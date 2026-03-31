@@ -1,16 +1,23 @@
 import re
 import os
-import ollama
+try:
+    import ollama
+except Exception:
+    ollama = None
 
 class IntentParser:
     def __init__(self, config_path="config/settings.json"):
         # Offline LLM initialization via Ollama
-        self.use_ollama = True
+        self.use_ollama = ollama is not None
         self.model = "llama3" # Default model
-        try:
-            # Check if ollama is running/available
-            ollama.list()
-        except Exception:
+        if self.use_ollama:
+            try:
+                # Check if ollama is running/available
+                ollama.list()
+            except Exception:
+                self.use_ollama = False
+                print("Warning: Ollama not found. Using pattern matching.")
+        else:
             self.use_ollama = False
             print("Warning: Ollama not found. Using pattern matching.")
 
