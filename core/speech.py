@@ -28,13 +28,11 @@ class SpeechManager:
         
         # Initialize Speech Recognition
         self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 4000  # Default higher for noisy environments, auto-adjust follows
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.dynamic_energy_adjustment_damping = 0.15
-        self.recognizer.dynamic_energy_ratio = 1.5
-        self.recognizer.pause_threshold = 0.8
-        self.recognizer.non_speaking_duration = 0.5
-        self.recognizer.operation_timeout = None  # Don't timeout the operation itself
+        self.recognizer.energy_threshold = self.config.get('energy_threshold', 1000)
+        self.recognizer.dynamic_energy_threshold = False 
+        self.recognizer.pause_threshold = 0.5
+        self.recognizer.non_speaking_duration = 0.3
+        self.recognizer.operation_timeout = 8
         self.mic_index = self.config.get('microphone_index', None)
         
         # Auto-detect Bluetooth Headsets
@@ -63,10 +61,12 @@ class SpeechManager:
         try:
             mics = sr.Microphone.list_microphone_names()
             for i, name in enumerate(mics):
-                # Common patterns for Bluetooth headsets in Windows
-                if any(term in name.lower() for term in ["hands-free", "bluetooth", "headset", "pods", "buds"]):
-                    print(f"Jarvis: Auto-detected Bluetooth Audio Device: {name}")
-                    return i
+                # We look for "hands-free" which is the standard Windows profile for bidirectional Bluetooth audio
+                if "hands-free" in name.lower() or "headset" in name.lower():
+                    # Check if the name contains common headset brands or 'hands-free'
+                    if any(term in name.lower() for term in ["buds", "pods", "hands-free", "bt", "bluetooth"]):
+                        print(f"Jarvis: Auto-detected Bluetooth Audio Device: {name}")
+                        return i
         except Exception:
             pass
         return None
@@ -102,15 +102,25 @@ class SpeechManager:
 
         try:
             with sr.Microphone(device_index=self.mic_index) as source:
-                print(f"Listening (Mic: {self.mic_index}) - Speak clearly...")
-                # Automatic noise adjustment
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                # The first listen in a session often needs a small adjustment if not done in __init__
+                # But we'll skip it here to avoid the hang or make it extremely fast
+                self.recognizer.energy_threshold = self.config.get('energy_threshold', 1000)
                 
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
-                
-                print("Processing speech...")
+                # Set a default timeout if none provided to prevent indefinite hanging
+                listen_timeout = timeout if timeout is not None else 5
+                listen_phrase_limit = phrase_limit if phrase_limit is not None else 8
+
+                print(f"Listening (Mic: {self.mic_index if self.mic_index is not None else 'Default'})...")
                 try:
-                    # Use faster offline-capable recognition or tighter Google API
+                    audio = self.recognizer.listen(source, timeout=listen_timeout, phrase_time_limit=listen_phrase_limit)
+                except sr.WaitTimeoutError:
+                    return None
+                except Exception as e:
+                    print(f"Listen error: {e}")
+                    return None
+
+                print("Processing...")
+                try:
                     query = self.recognizer.recognize_google(audio, language=self.config.get('recognition_language', 'en-US'))
                     if query:
                         print(f"User: {query}")
@@ -119,8 +129,6 @@ class SpeechManager:
                 except (sr.UnknownValueError, sr.RequestError):
                     return None
                     
-        except (sr.WaitTimeoutError, sr.UnknownValueError):
-            return None
         except Exception as e:
             # Handle Bluetooth disconnects / permission issues
             msg = str(e).lower()

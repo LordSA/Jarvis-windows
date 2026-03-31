@@ -48,7 +48,8 @@ class JarvisEngine(QThread):
                 query = self.speech_manager.listen_text()
             else:
                 self.status_changed.emit("Listening...")
-                query = self.speech_manager.listen()
+                # Reduced timeout to look for hotkeys more frequently
+                query = self.speech_manager.listen(timeout=5, phrase_limit=10)
             
             if query:
                 self.query_heard.emit(query)
