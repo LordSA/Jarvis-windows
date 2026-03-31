@@ -23,22 +23,19 @@ class JarvisEngine(QThread):
         self.mail_control = MailControl()
         self.sys_control = SystemControl()
         self.is_running = True
+        self.keyboard_mode = False
         
         keyboard.add_hotkey('ctrl+alt+j', self.force_listen)
+        keyboard.add_hotkey('shift+z', self.toggle_keyboard_mode)
+
+    def toggle_keyboard_mode(self):
+        self.keyboard_mode = not self.keyboard_mode
+        mode_str = "Keyboards Only" if self.keyboard_mode else "Listening (Mic)"
+        self.status_changed.emit(f"Mode: {mode_str}")
+        self.speech_manager.speak(f"Switching to {mode_str} mode.")
 
     def force_listen(self):
         self.status_changed.emit("Listening (Hotkey)...")
-
-    def get_voice_confirmation(self):
-        """Ultra-fast confirmation listening."""
-        self.status_changed.emit("Confirm? (Yes/No)")
-        # Tighter listening window for confirm
-        reply = self.speech_manager.listen(timeout=3, phrase_limit=2)
-        if reply:
-            print(f"DEBUG: Confirm Reply: {reply}")
-            if any(word in reply for word in ["yes", "yeah", "sure", "ok", "yep"]):
-                return True
-        return False
 
     def run(self):
         self.status_changed.emit("Listening...")
@@ -46,14 +43,24 @@ class JarvisEngine(QThread):
         
         while self.is_running:
             # Let the listening status update before we block
-            self.status_changed.emit("Listening...")
-            time.sleep(0.1) 
-            query = self.speech_manager.listen()
+            if self.keyboard_mode:
+                self.status_changed.emit("Waiting for command (Keyboard)...")
+                query = self.speech_manager.listen_text()
+            else:
+                self.status_changed.emit("Listening...")
+                query = self.speech_manager.listen()
             
             if query:
                 self.query_heard.emit(query)
                 self.status_changed.emit("Analyzing...")
-                intent, entities = self.intent_parser.parse(query)
+                # The updated nlp.py returns (intent, entities, reply)
+                res = self.intent_parser.parse(query)
+                if isinstance(res, tuple) and len(res) == 3:
+                    intent, entities, reply = res
+                else:
+                    intent, entities = res
+                    reply = None
+                
                 print(f"Jarvis Debug: Received query - '{query}'")
                 print(f"Jarvis Debug: Parsed Intent - {intent}, Entities - {entities}")
                 
@@ -98,17 +105,15 @@ class JarvisEngine(QThread):
                     
                     print(f"Jarvis Debug: Voice confirmed {app_name}: {confirmed}")
                     if confirmed:
-                        success = self.app_control.launch_app(app_name)
-                        if success:
-                            self.speech_manager.speak(f"Launching {app_name}")
-                        else:
-                            self.speech_manager.speak(f"Sorry, I couldn't find {app_name}")
-                    else:
-                        self.speech_manager.speak("Action cancelled.")
+                        self.app_control.launch_app(app_name)
+                        self.speech_manager.speak(f"Launching {app_name}.")
                 
-                elif query and not intent:
-                    # In keyboard mode or voice mode, if no intent, just acknowledge
-                    self.speech_manager.speak(f"I heard you say: {query}")
+                elif intent == "chat" or reply:
+                    chat_reply = reply if reply else self.intent_parser.parse_with_chat(query)
+                    self.speech_manager.speak(chat_reply)
+                
+                else:
+                    self.speech_manager.speak("I'm not sure how to help with that yet.")
             else:
                 # Add a small sleep to prevent CPU spike in listen loops
                 time.sleep(0.1)
@@ -118,6 +123,19 @@ class JarvisEngine(QThread):
                 self.is_running = False
                 break
 
+    def get_voice_confirmation(self):
+        """Specifically listen for Yes/No after a prompt."""
+        self.status_changed.emit("Confirm? (Yes/No)")
+        for _ in range(2): # Try twice
+            # Faster timeout for confirmation
+            reply = self.speech_manager.listen(timeout=5, phrase_limit=3)
+            if reply:
+                print(f"Jarvis Debug: Confirmation Reply - {reply}")
+                if any(word in reply for word in ["yes", "yeah", "sure", "do it", "confirm"]):
+                    return True
+                if any(word in reply for word in ["no", "never", "cancel", "stop", "don't"]):
+                    return False
+        return False
 
     def stop(self):
         self.is_running = False
