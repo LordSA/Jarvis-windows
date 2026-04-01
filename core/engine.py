@@ -107,8 +107,11 @@ class JarvisEngine(QThread):
                     
                     print(f"Jarvis Debug: Voice confirmed {app_name}: {confirmed}")
                     if confirmed:
-                        self.app_control.launch_app(app_name)
-                        self.speech_manager.speak(f"Launching {app_name}.")
+                        launched = self.app_control.open_app(app_name)
+                        if launched:
+                            self.speech_manager.speak(f"Launching {app_name}.")
+                        else:
+                            self.speech_manager.speak(f"I could not launch {app_name}.")
                 
                 elif intent == "chat" or reply:
                     chat_reply = reply if reply else self.intent_parser.parse_with_chat(query)
@@ -140,16 +143,25 @@ class JarvisEngine(QThread):
                     return True
                 if self._is_negative(reply):
                     return False
+                self.speech_manager.speak("Please say yes or no.")
         return False
 
     def _is_affirmative(self, text):
         normalized = re.sub(r"[^a-zA-Z\s]", " ", text.lower()).strip()
         words = set(normalized.split())
         affirm_words = {
-            "yes", "y", "yeah", "yep", "sure", "ok", "okay", "confirm", "do", "go", "launch"
+            "yes", "y", "yeah", "yep", "yup", "ya", "sure", "ok", "okay", "confirm", "do", "go", "launch"
         }
         if words.intersection(affirm_words):
             return True
+
+        # Accept near-miss transcriptions for short confirmations (e.g., "yas", "yess", "yep").
+        for w in words:
+            if w.startswith(("ye", "ya", "yu")) and len(w) <= 5:
+                return True
+            if self._is_close_word(w, ["yes", "yeah", "yep", "yup", "ok", "okay", "sure"], max_distance=1):
+                return True
+
         return any(phrase in normalized for phrase in [
             "do it", "go ahead", "open it", "launch it", "yes please"
         ])
@@ -158,13 +170,42 @@ class JarvisEngine(QThread):
         normalized = re.sub(r"[^a-zA-Z\s]", " ", text.lower()).strip()
         words = set(normalized.split())
         negative_words = {
-            "no", "n", "nope", "cancel", "stop", "dont", "don't", "never"
+            "no", "n", "nope", "nah", "cancel", "stop", "dont", "don't", "never"
         }
         if words.intersection(negative_words):
             return True
+
+        for w in words:
+            if self._is_close_word(w, ["no", "nope", "nah", "cancel", "stop"], max_distance=1):
+                return True
+
         return any(phrase in normalized for phrase in [
             "not now", "do not", "don t", "no thanks"
         ])
+
+    def _is_close_word(self, word, candidates, max_distance=1):
+        if not word:
+            return False
+        return any(self._levenshtein(word, c) <= max_distance for c in candidates)
+
+    def _levenshtein(self, a, b):
+        if a == b:
+            return 0
+        if not a:
+            return len(b)
+        if not b:
+            return len(a)
+
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, start=1):
+            curr = [i]
+            for j, cb in enumerate(b, start=1):
+                ins = curr[j - 1] + 1
+                delete = prev[j] + 1
+                replace = prev[j - 1] + (0 if ca == cb else 1)
+                curr.append(min(ins, delete, replace))
+            prev = curr
+        return prev[-1]
 
     def stop(self):
         self.is_running = False
