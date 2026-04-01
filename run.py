@@ -1,8 +1,9 @@
 import sys
 import os
 import ctypes
+import signal
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 
 # Ensure local imports work correctly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
@@ -70,9 +71,35 @@ def main():
     engine.request_confirmation.connect(handle_confirmation)
 
     engine.start() # Start listening
+
+    is_shutting_down = False
+
+    def shutdown():
+        nonlocal is_shutting_down
+        if is_shutting_down:
+            return
+        is_shutting_down = True
+        overlay.set_status("Shutting down...")
+        engine.stop()
+        app.quit()
+
+    # Let Ctrl+C in terminal exit the app gracefully.
+    signal.signal(signal.SIGINT, lambda *_: shutdown())
+
+    # Keep Python responsive to SIGINT while Qt event loop is running.
+    signal_pump = QTimer()
+    signal_pump.timeout.connect(lambda: None)
+    signal_pump.start(200)
     
-    result = app.exec()
-    engine.stop()
+    try:
+        result = app.exec()
+    except KeyboardInterrupt:
+        shutdown()
+        result = 0
+    finally:
+        if not is_shutting_down:
+            engine.stop()
+
     sys.exit(result)
 
 if __name__ == "__main__":
